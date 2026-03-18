@@ -7,7 +7,7 @@ import Sidebar from "@/components/layout/sidebar";
 import Header from "@/components/layout/header";
 import VideoPlayer from "@/components/player/VideoPlayer";
 import { Channel } from "@/lib/m3u-parser";
-import { AlertTriangle, Loader, Heart, Grid2X2 } from "lucide-react";
+import { AlertTriangle, Heart, Grid2X2 } from "lucide-react";
 import { NavRail } from "@/components/layout/nav-rail";
 import { HomeGrid } from "@/components/views/home-grid";
 import { HomeView } from "@/components/views/home-view";
@@ -16,6 +16,7 @@ import { useFavorites } from "@/hooks/useFavorites";
 import { useSettings, View as SettingsViewType } from "@/hooks/useSettings";
 import { SettingsView } from "@/components/views/settings-view";
 import { cn } from "@/lib/utils";
+import { GtnLogo } from "@/components/gtn-logo";
 
 
 export default function Home() {
@@ -70,12 +71,20 @@ export default function Home() {
     setSelectedChannel(null); // Reset player state
   };
 
+  const handleChannelSelect = (channel: Channel) => {
+    setSelectedChannel(channel);
+    setView("player");
+    if (window.innerWidth < 768) { // md breakpoint
+      setIsSidebarOpen(false);
+    }
+  };
+
   const handleNextChannel = () => {
     if (!selectedChannel) return;
     const currentIndex = displayChannels.findIndex(c => c.url === selectedChannel.url);
     if (currentIndex !== -1) {
       const nextIndex = (currentIndex + 1) % displayChannels.length;
-      handleChannelClick(displayChannels[nextIndex]);
+      handleChannelSelect(displayChannels[nextIndex]);
     }
   };
   
@@ -90,17 +99,6 @@ export default function Home() {
       </div>
     );
   }
-  
-  if ((loading && allChannels.length === 0) || !settingsLoaded) {
-    return (
-        <div className="flex h-screen items-center justify-center text-foreground">
-            <div className="flex flex-col items-center gap-4">
-                <Loader className="w-12 h-12 animate-spin text-primary" />
-                <h2 className="text-xl font-medium text-muted-foreground">Loading Channels...</h2>
-            </div>
-        </div>
-    )
-  }
 
   const renderContent = () => {
     switch (view) {
@@ -108,7 +106,7 @@ export default function Home() {
         return (
           <HomeView 
             channels={displayChannels} 
-            onChannelSelect={handleChannelClick} 
+            onChannelSelect={handleChannelSelect} 
             loadMore={loadMore} 
             hasMore={hasMore} 
           />
@@ -123,7 +121,7 @@ export default function Home() {
       case "favorites":
         if (favoriteChannels.length === 0) {
           return (
-            <div className="flex flex-col items-center justify-center h-full text-slate-400">
+            <div className="flex flex-col items-center justify-center h-full text-slate-400 animate-in fade-in duration-700">
               <Heart className="w-24 h-24 mb-4 text-slate-600" />
               <h2 className="text-2xl font-semibold">No Favorites Yet</h2>
               <p>Click the heart on a channel in the player to add it here.</p>
@@ -131,9 +129,14 @@ export default function Home() {
           );
         }
         return (
-          <div className="p-4 md:p-8">
-            <h2 className="font-headline text-2xl md:text-3xl font-bold tracking-tight mb-4">Your Favorite Channels</h2>
-            <HomeGrid items={favoriteChannels} onChannelSelect={handleChannelClick} />
+          <div className="p-4 md:p-8 space-y-12 animate-in fade-in duration-700">
+            <header className="space-y-2 border-b border-white/5 pb-8">
+              <h1 className="text-4xl md:text-5xl font-bold tracking-tighter text-white">Your Favorites</h1>
+              <p className="text-muted-foreground text-lg max-w-2xl">
+                Quickly access your most-watched channels.
+              </p>
+            </header>
+            <HomeGrid items={favoriteChannels} onChannelSelect={handleChannelSelect} />
           </div>
         );
       case "player":
@@ -144,7 +147,7 @@ export default function Home() {
               setIsSidebarOpen={setIsSidebarOpen}
               displayChannels={displayChannels}
               selectedChannel={selectedChannel}
-              handleChannelClick={handleChannelClick}
+              handleChannelClick={handleChannelSelect}
               searchTerm={searchTerm}
               setSearchTerm={setSearchTerm}
               selectedCategory={selectedCategory}
@@ -173,7 +176,7 @@ export default function Home() {
         return (
           <HomeView 
             channels={displayChannels} 
-            onChannelSelect={handleChannelClick} 
+            onChannelSelect={handleChannelSelect} 
             loadMore={loadMore} 
             hasMore={hasMore} 
           />
@@ -181,8 +184,10 @@ export default function Home() {
     }
   };
 
+  const isLoading = (loading && allChannels.length === 0) || !settingsLoaded;
+
   return (
-    <div className="flex h-screen overflow-hidden text-foreground">
+    <div className="flex h-screen overflow-hidden text-foreground relative">
       <NavRail 
         view={view} 
         setView={setView} 
@@ -193,6 +198,38 @@ export default function Home() {
         {renderContent()}
       </main>
       <SettingsView isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+
+      {/* Modern Loading Overlay */}
+      {isLoading && (
+        <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-background/60 backdrop-blur-md animate-in fade-in duration-700">
+          <div className="flex flex-col items-center gap-10">
+            {/* Glowing Logo */}
+            <div className="relative">
+              <div className="absolute -inset-10 bg-primary/20 blur-3xl rounded-full animate-pulse" />
+              <GtnLogo className="w-20 h-20 text-primary relative z-10 drop-shadow-[0_0_15px_rgba(0,174,239,0.8)]" />
+            </div>
+
+            {/* Sleek Square Pulse Animation */}
+            <div className="flex items-center gap-3">
+              {[0, 1, 2, 3].map((i) => (
+                <div 
+                  key={i}
+                  className="w-4 h-4 bg-primary/90 rounded-[2px] shadow-[0_0_12px_rgba(0,174,239,0.5)] animate-pulse"
+                  style={{ animationDelay: `${i * 200}ms`, animationDuration: '1.5s' }}
+                />
+              ))}
+            </div>
+
+            {/* Modern Text */}
+            <div className="flex flex-col items-center gap-2">
+              <span className="text-sm font-bold tracking-[0.4em] text-white/80 uppercase animate-pulse">
+                Initializing Channels
+              </span>
+              <div className="h-[1px] w-16 bg-primary/30" />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,11 +1,7 @@
-
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
-import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
-import { db } from '@/firebase/config';
-import { errorEmitter } from '@/firebase/error-emitter';
-import { FirestorePermissionError } from '@/firebase/errors';
+import { supabase } from '@/lib/supabase';
 
 export interface Playlist {
   id: string;
@@ -19,14 +15,11 @@ export interface Playlist {
 const PLAYLISTS_DOC_CACHE_KEY = 'gtnplay_playlists_definitions_v1';
 const CACHE_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000; // 30 Days
 
-// Global in-memory cache
 let globalPlaylistsCache: Playlist[] | null = null;
 let subscribers: ((playlists: Playlist[]) => void)[] = [];
 
-/**
- * Internal helper to get cached data from localStorage
- */
 function getLocalCache(): { items: Playlist[]; timestamp: number } | null {
+  if (typeof window === 'undefined') return null;
   try {
     const cached = localStorage.getItem(PLAYLISTS_DOC_CACHE_KEY);
     if (!cached) return null;
@@ -36,10 +29,8 @@ function getLocalCache(): { items: Playlist[]; timestamp: number } | null {
   }
 }
 
-/**
- * Internal helper to set local cache
- */
 function setLocalCache(items: Playlist[]) {
+  if (typeof window === 'undefined') return;
   try {
     localStorage.setItem(PLAYLISTS_DOC_CACHE_KEY, JSON.stringify({
       items,
@@ -50,28 +41,26 @@ function setLocalCache(items: Playlist[]) {
   }
 }
 
-/**
- * Fetches the playlist definitions document from Firestore
- */
-async function fetchPlaylistsFromFirestore(): Promise<Playlist[]> {
-  const docRef = doc(db, 'settings', 'playlists');
+async function fetchPlaylistsFromSupabase(): Promise<Playlist[]> {
   try {
-    const snap = await getDoc(docRef);
-    if (!snap.exists()) return [];
-    const items = (snap.data()?.items || []) as Playlist[];
-    const sorted = [...items].sort((a, b) => a.order - b.order);
+    const { data, error } = await supabase
+      .from('settings')
+      .select('data')
+      .eq('id', 'playlists')
+      .single();
+
+    if (error) throw error;
     
-    // Update caches
+    const items = (data?.data?.items || []) as Playlist[];
+    // Ensure items are always sorted by order for consistency
+    const sorted = [...items].sort((a, b) => (a.order || 0) - (b.order || 0));
+    
     setLocalCache(sorted);
     globalPlaylistsCache = sorted;
     
     return sorted;
-  } catch (error) {
-    const permissionError = new FirestorePermissionError({
-      path: docRef.path,
-      operation: 'get',
-    });
-    errorEmitter.emit('permission-error', permissionError);
+  } catch (error: any) {
+    console.error('Supabase fetch error:', error);
     return [];
   }
 }
@@ -80,12 +69,12 @@ export function usePlaylists() {
   const [playlists, setPlaylists] = useState<Playlist[]>(globalPlaylistsCache || []);
   const [isLoading, setIsLoading] = useState(!globalPlaylistsCache);
 
-  const refresh = useCallback(async (forceFirestore = false) => {
+  const refresh = useCallback(async (forceSupabase = false) => {
     setIsLoading(true);
     
     let items: Playlist[] = [];
     
-    if (!forceFirestore) {
+    if (!forceSupabase) {
       const cached = getLocalCache();
       const isExpired = cached ? (Date.now() - cached.timestamp > CACHE_EXPIRY_MS) : true;
       
@@ -94,17 +83,17 @@ export function usePlaylists() {
       }
     }
 
-    // If no valid cache or forced, hit Firestore
     if (items.length === 0) {
-      items = await fetchPlaylistsFromFirestore();
+      items = await fetchPlaylistsFromSupabase();
     }
 
-    globalPlaylistsCache = items;
-    setPlaylists(items);
+    const sortedItems = [...items].sort((a, b) => (a.order || 0) - (b.order || 0));
+    globalPlaylistsCache = sortedItems;
+    setPlaylists(sortedItems);
     setIsLoading(false);
     
-    // Notify other hook instances
-    subscribers.forEach(sub => sub(items));
+    // Notify all instances of the hook to update
+    subscribers.forEach(sub => sub(sortedItems));
   }, []);
 
   useEffect(() => {
@@ -123,31 +112,25 @@ export function usePlaylists() {
   return { playlists, isLoading, refresh };
 }
 
-/**
- * Administrative helper to update playlists
- */
 export async function updateAllPlaylists(items: Playlist[]) {
-  const docRef = doc(db, 'settings', 'playlists');
   try {
-    const snap = await getDoc(docRef);
-    if (!snap.exists()) {
-      await setDoc(docRef, { items });
-    } else {
-      await updateDoc(docRef, { items });
-    }
+    // Ensure we sort before saving to maintain predictable array structure
+    const sortedItems = [...items].sort((a, b) => (a.order || 0) - (b.order || 0));
+
+    // Single Document Strategy: overwrite the 'items' array in the 'playlists' settings record
+    const { error } = await supabase
+      .from('settings')
+      .upsert({ id: 'playlists', data: { items: sortedItems } }, { onConflict: 'id' });
+
+    if (error) throw error;
     
-    // Update local cache immediately after successful write
-    setLocalCache(items);
-    globalPlaylistsCache = items;
-    subscribers.forEach(sub => sub(items));
+    // Update local cache and notify subscribers immediately
+    setLocalCache(sortedItems);
+    globalPlaylistsCache = sortedItems;
+    subscribers.forEach(sub => sub(sortedItems));
     
-  } catch (error) {
-    const permissionError = new FirestorePermissionError({
-      path: docRef.path,
-      operation: 'write',
-      requestResourceData: { items },
-    });
-    errorEmitter.emit('permission-error', permissionError);
+  } catch (error: any) {
+    console.error('Supabase update error:', error);
     throw error;
   }
 }

@@ -2,8 +2,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { collection, getDocs } from 'firebase/firestore';
-import { db } from '@/firebase/config';
+import { supabase } from '@/lib/supabase';
 import { manualParse, Channel } from '@/lib/m3u-parser';
 import { usePlaylists } from './usePlaylists';
 
@@ -22,25 +21,41 @@ export function useChannels(customPlaylistUrl?: string, selectedPlaylistId?: str
   const [error, setError] = useState<string | null>(null);
 
   const fetchChannels = useCallback(async (isRetry = false) => {
+    // If playlists are still loading and we don't have a custom URL, wait.
     if (playlistsLoading && !customPlaylistUrl) return;
 
     setError(null);
     
     try {
-      const defaultUrl = 'https://iptv-org.github.io/iptv/index.m3u';
       let playlistUrl = '';
 
+      // Priority 1: User-provided custom URL in settings
       if (customPlaylistUrl) {
           playlistUrl = customPlaylistUrl;
-      } else if (selectedPlaylistId) {
+      } 
+      // Priority 2: Specifically selected playlist from the categories/sidebar
+      else if (selectedPlaylistId) {
           const selected = playlists.find(p => p.id === selectedPlaylistId);
-          playlistUrl = selected?.url || defaultUrl;
-      } else {
-          playlistUrl = playlists.length > 0 ? playlists[0].url : defaultUrl;
+          playlistUrl = selected?.url || '';
+      } 
+      // Priority 3: Default to the first playlist in the global list
+      else if (playlists.length > 0) {
+          playlistUrl = playlists[0].url;
       }
 
-      const urlRegex = /^https:\/\/.*\.m3u8?$/;
-      if (!playlistUrl || !urlRegex.test(playlistUrl)) {
+      // STRICT REQUIREMENT: If no URL is available (database is empty and no custom URL), 
+      // do not use a fallback. Just show 0 channels.
+      if (!playlistUrl) {
+        setAllChannels([]);
+        setFilteredChannels([]);
+        setCategories(['All']);
+        setLoading(false);
+        return;
+      }
+
+      // Basic validation: ensure it looks like an M3U/M3U8 link (allowing query params)
+      const urlRegex = /^https:\/\/.*\.m3u8?(\?.*)?$/i;
+      if (!urlRegex.test(playlistUrl)) {
         setAllChannels([]);
         setFilteredChannels([]);
         setCategories(['All']);
@@ -50,18 +65,15 @@ export function useChannels(customPlaylistUrl?: string, selectedPlaylistId?: str
 
       setLoading(true);
       
-      // Fetch M3U Content
       let response;
       try {
         response = await fetch(playlistUrl);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
       } catch (fetchErr) {
-        // FAIL-SAFE / AUTO-RECOVERY
-        // If fetch fails and we haven't retried yet, refresh playlist definitions from Firestore
+        // If fetch fails, try to refresh playlist definitions once as a fail-safe
         if (!isRetry && !customPlaylistUrl) {
-          console.warn('Playlist URL fetch failed, forcing Firestore re-sync for auto-recovery...');
-          await refreshPlaylists(true); // Force hit Firestore
-          fetchChannels(true); // Retry once with fresh data
+          await refreshPlaylists(true); 
+          fetchChannels(true); 
           return;
         }
         throw fetchErr;
@@ -70,16 +82,21 @@ export function useChannels(customPlaylistUrl?: string, selectedPlaylistId?: str
       const text = await response.text();
       const playlist = manualParse(text);
 
-      // Fetch Visibility Settings (always fresh from DB)
-      const visibilityCollection = collection(db, 'channel_visibility');
-      const visibilitySnapshot = await getDocs(visibilityCollection);
+      // Fetch visibility overrides from Supabase
+      const { data: visibilityData, error: visibilityError } = await supabase
+        .from('channel_visibility')
+        .select('id, visible');
+
+      if (visibilityError) throw visibilityError;
+
       const visibilityMap: VisibilityMap = {};
-      visibilitySnapshot.forEach(doc => {
-          if (doc.data().visible === false) { 
-              visibilityMap[doc.id] = false;
+      visibilityData?.forEach(row => {
+          if (row.visible === false) { 
+              visibilityMap[row.id] = false;
           }
       });
 
+      // Filter out hidden channels and entries without URLs
       const validAndVisibleChannels = playlist.items.filter(item => {
           const isVisible = visibilityMap[item.tvg.id] !== false; 
           return item.url && isVisible;
@@ -92,7 +109,8 @@ export function useChannels(customPlaylistUrl?: string, selectedPlaylistId?: str
       setCategories(uniqueCategories.sort());
 
     } catch (e: any) {
-      console.error('Error loading channels:', e);
+      console.error('Channel fetch error:', e);
+      // Only set error if we have no channels at all to show
       if (allChannels.length === 0) {
           setError(e.message || 'Failed to load channels.');
       }

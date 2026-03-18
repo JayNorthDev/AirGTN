@@ -2,8 +2,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { db } from '@/firebase/config';
-import { collection, doc, getDoc, getDocs, setDoc } from 'firebase/firestore';
+import { supabase } from '@/lib/supabase';
 import { manualParse, Channel } from '@/lib/m3u-parser';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -37,7 +36,6 @@ export function ChannelList({ onRefreshing, forcedPlaylistUrl }: ChannelListProp
     const [error, setError] = useState<string | null>(null);
     const [visibleCount, setVisibleCount] = useState(BATCH_SIZE);
     
-    // Search and Filter State
     const [searchTerm, setSearchTerm] = useState("");
     const [activeFilters, setActiveFilters] = useState<string[]>([]);
     
@@ -53,38 +51,54 @@ export function ChannelList({ onRefreshing, forcedPlaylistUrl }: ChannelListProp
         try {
             let playlistUrl = forcedPlaylistUrl;
             
+            // If no URL is provided, try to fetch the first one from global settings
             if (!playlistUrl) {
-                const playlistDocRef = doc(db, 'settings', 'playlist');
-                const docSnap = await getDoc(playlistDocRef);
-                playlistUrl = 'https://iptv-org.github.io/iptv/index.m3u'; 
-                if (docSnap.exists() && docSnap.data().url) {
-                    playlistUrl = docSnap.data().url;
-                }
+                const { data: settingsData } = await supabase
+                    .from('settings')
+                    .select('data')
+                    .eq('id', 'playlists')
+                    .single();
+                
+                const playlists = (settingsData?.data?.items || []) as any[];
+                playlistUrl = playlists.length > 0 ? playlists[0].url : '';
+            }
+
+            if (!playlistUrl) {
+                setLoading(false);
+                return;
             }
 
             setLoading(true);
 
-            const visibilityCollection = collection(db, 'channel_visibility');
-            const visibilitySnapshot = await getDocs(visibilityCollection);
+            // Fetch current visibility status from Supabase
+            const { data: visibilityData, error: visibilityError } = await supabase
+                .from('channel_visibility')
+                .select('id, visible');
+            
+            if (visibilityError) throw visibilityError;
+
             const visibilityMap: VisibilityMap = {};
-            visibilitySnapshot.forEach(doc => {
-                visibilityMap[doc.id] = doc.data().visible;
+            visibilityData?.forEach(row => {
+                visibilityMap[row.id] = row.visible;
             });
             setVisibility(visibilityMap);
 
+            // Fetch and parse M3U content
             const response = await fetch(playlistUrl);
             if (!response.ok) throw new Error(`Failed to fetch playlist: ${response.statusText}`);
             const m3uText = await response.text();
             const parsedPlaylist = manualParse(m3uText);
+            
+            // Filter out empty entries
             const validChannels = parsedPlaylist.items.filter(c => c.url && c.tvg?.id);
             
             setChannels(validChannels);
 
         } catch (e: any) {
+            console.error('Channel management error:', e);
             if (channels.length === 0) {
                 setError(e.message || 'An unknown error occurred.');
             }
-            console.error(e);
         } finally {
             setLoading(false);
             setIsRefreshing(false);
@@ -103,6 +117,7 @@ export function ChannelList({ onRefreshing, forcedPlaylistUrl }: ChannelListProp
             
             const matchesSearch = name.includes(search) || id.includes(search);
             
+            // Basic quality filters
             const isGeoBlocked = channel.name.includes('[Geo-blocked]');
             const isNot247 = channel.name.includes('[Not 24/7]');
             
@@ -113,10 +128,12 @@ export function ChannelList({ onRefreshing, forcedPlaylistUrl }: ChannelListProp
         });
     }, [channels, searchTerm, activeFilters]);
 
+    // Reset pagination when search or filters change
     useEffect(() => {
         setVisibleCount(BATCH_SIZE);
     }, [searchTerm, activeFilters]);
 
+    // Virtualized loading logic
     useEffect(() => {
         const observer = new IntersectionObserver(
             (entries) => {
@@ -142,17 +159,19 @@ export function ChannelList({ onRefreshing, forcedPlaylistUrl }: ChannelListProp
     const handleVisibilityChange = async (channelId: string, isVisible: boolean) => {
         if (!channelId) return;
         
+        // Optimistic UI update
         setVisibility(prev => ({ ...prev, [channelId]: isVisible }));
 
         try {
-            const visibilityDocRef = doc(db, 'channel_visibility', channelId);
-            setDoc(visibilityDocRef, { visible: isVisible, channelId: channelId }, { merge: true })
-                .catch((error) => {
-                    console.error('Failed to update visibility:', error);
-                    setVisibility(prev => ({ ...prev, [channelId]: !isVisible }));
-                });
-        } catch (error) {
-            console.error('Failed to initiate visibility update:', error);
+            const { error } = await supabase
+                .from('channel_visibility')
+                .upsert({ id: channelId, visible: isVisible }, { onConflict: 'id' });
+            
+            if (error) throw error;
+        } catch (error: any) {
+            console.error('Visibility update error:', error);
+            // Rollback on failure
+            setVisibility(prev => ({ ...prev, [channelId]: !isVisible }));
         }
     };
 
@@ -219,7 +238,6 @@ export function ChannelList({ onRefreshing, forcedPlaylistUrl }: ChannelListProp
     
     return (
         <div className="relative space-y-4">
-            {/* Search and Filters Bar */}
             <div className="flex flex-col md:flex-row gap-4 items-center">
                 <div className="relative flex-1 w-full">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
@@ -272,7 +290,6 @@ export function ChannelList({ onRefreshing, forcedPlaylistUrl }: ChannelListProp
                 </div>
             </div>
 
-            {/* Table Content */}
             <div className="rounded-lg border border-[#333] bg-[#1a1a1a]/30 overflow-hidden">
                 <div 
                     ref={containerRef}

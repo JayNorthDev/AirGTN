@@ -22,21 +22,44 @@ const navItems = [
 ];
 
 export function NavRail({ view, setView, isSettingsOpen, setIsSettingsOpen }: NavRailProps) {
+  const handleNavClick = (viewId: string) => {
+    setView(viewId as View);
+    setIsSettingsOpen(false);
+  };
+
+  const handleSettingsToggle = (e: React.MouseEvent) => {
+    e.stopPropagation(); // Stop bubbling to container so toggle logic works
+    setIsSettingsOpen(!isSettingsOpen);
+  };
+
+  const handleRailClick = () => {
+    // Clicking anywhere within the rail container should close settings
+    if (isSettingsOpen) {
+      setIsSettingsOpen(false);
+    }
+  };
+
   return (
     <>
       {/* Desktop Nav Rail */}
-      <aside className="hidden md:flex flex-col items-center w-24 bg-black/20 backdrop-blur-lg border-r border-white/5 py-6 z-20">
+      <aside 
+        onClick={handleRailClick}
+        className="hidden md:flex flex-col items-center w-24 bg-black/20 backdrop-blur-lg border-r border-white/5 py-6 z-20"
+      >
         <div className="mb-10">
           <GtnLogo className="w-10 h-10 text-white" />
         </div>
         <div className="flex-1 flex items-center">
-          <nav className="flex flex-col items-center gap-4 bg-black/20 p-2 rounded-full border border-white/10">
+          <nav 
+            className="flex flex-col items-center gap-4 bg-black/20 p-2 rounded-full border border-white/10"
+            onClick={(e) => e.stopPropagation()} // Let button clicks bubble to aside normally but avoid inner nav clicks if not buttons
+          >
             {navItems.map((item) => {
               const isActive = view === item.id;
               return (
                 <button
                   key={item.id}
-                  onClick={() => setView(item.id as View)}
+                  onClick={() => handleNavClick(item.id)}
                   title={item.label}
                   className={cn(
                     "relative flex flex-col items-center justify-center w-16 h-16 rounded-full transition-all duration-300 group",
@@ -61,7 +84,7 @@ export function NavRail({ view, setView, isSettingsOpen, setIsSettingsOpen }: Na
         </div>
         <div>
           <button
-            onClick={() => setIsSettingsOpen(true)}
+            onClick={handleSettingsToggle}
             title="Settings"
             className={cn(
               "relative flex items-center justify-center w-16 h-16 rounded-full transition-all duration-300 group",
@@ -81,13 +104,16 @@ export function NavRail({ view, setView, isSettingsOpen, setIsSettingsOpen }: Na
       </aside>
 
       {/* Mobile Bottom Bar */}
-      <nav className="md:hidden fixed bottom-4 inset-x-4 h-16 bg-black/20 backdrop-blur-lg border border-white/10 flex justify-around items-center z-50 rounded-full shadow-2xl">
+      <nav 
+        onClick={handleRailClick}
+        className="md:hidden fixed bottom-4 inset-x-4 h-16 bg-black/20 backdrop-blur-lg border border-white/10 flex justify-around items-center z-50 rounded-full shadow-2xl"
+      >
         {navItems.map((item) => {
           const isActive = view === item.id;
           return (
             <button
               key={item.id}
-              onClick={() => setView(item.id as View)}
+              onClick={() => handleNavClick(item.id)}
               className="flex flex-col items-center justify-center h-full w-full rounded-full"
             >
                <div className={cn("flex items-center justify-center w-10 h-10 rounded-full transition-colors", isActive ? 'bg-primary/20' : '')}>
@@ -100,7 +126,7 @@ export function NavRail({ view, setView, isSettingsOpen, setIsSettingsOpen }: Na
           );
         })}
         <button
-          onClick={() => setIsSettingsOpen(true)}
+          onClick={handleSettingsToggle}
           className="flex flex-col items-center justify-center h-full w-full rounded-full"
         >
           <div className={cn("flex items-center justify-center w-10 h-10 rounded-full transition-colors", isSettingsOpen ? 'bg-primary/20' : '')}>

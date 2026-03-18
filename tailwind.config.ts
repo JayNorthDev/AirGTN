@@ -1,3 +1,4 @@
+
 import type {Config} from 'tailwindcss';
 
 export default {
@@ -10,8 +11,8 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        body: ['"PT Sans"', 'sans-serif'],
-        headline: ['Inter', 'sans-serif'],
+        body: ['"Funnel Display"', 'sans-serif'],
+        headline: ['"Funnel Display"', 'sans-serif'],
         code: ['monospace'],
       },
       colors: {
@@ -67,9 +68,9 @@ export default {
         },
       },
       borderRadius: {
-        lg: 'var(--radius)',
-        md: 'calc(var(--radius) - 2px)',
-        sm: 'calc(var(--radius) - 4px)',
+        lg: '0rem',
+        md: '0rem',
+        sm: '0rem',
       },
       keyframes: {
         'accordion-down': {

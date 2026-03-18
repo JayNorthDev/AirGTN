@@ -11,7 +11,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useToast } from '@/hooks/use-toast';
-import Link from 'next/link';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
@@ -25,12 +24,66 @@ export function SettingsView({ isOpen, onClose }: SettingsViewProps) {
   const { settings, updateSettings } = useSettings();
   const [customUrl, setCustomUrl] = useState(settings.customPlaylistUrl);
   const { toast } = useToast();
+  const [isFullScreen, setIsFullScreen] = useState(false);
 
   const [isSaveConfirmOpen, setIsSaveConfirmOpen] = useState(false);
 
   useEffect(() => {
     setCustomUrl(settings.customPlaylistUrl);
   }, [settings.customPlaylistUrl]);
+
+  useEffect(() => {
+    const handler = () => {
+      setIsFullScreen(!!(
+        document.fullscreenElement || 
+        (document as any).webkitFullscreenElement || 
+        (document as any).mozFullScreenElement || 
+        (document as any).msFullscreenElement
+      ));
+    };
+
+    document.addEventListener('fullscreenchange', handler);
+    document.addEventListener('webkitfullscreenchange', handler);
+    document.addEventListener('mozfullscreenchange', handler);
+    document.addEventListener('MSFullscreenChange', handler);
+
+    // Initial check
+    handler();
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handler);
+      document.removeEventListener('webkitfullscreenchange', handler);
+      document.removeEventListener('mozfullscreenchange', handler);
+      document.removeEventListener('MSFullscreenChange', handler);
+    };
+  }, []);
+
+  const handleToggleFullScreen = () => {
+    const doc = document as any;
+    const docElm = document.documentElement as any;
+
+    if (!doc.fullscreenElement && !doc.webkitFullscreenElement && !doc.mozFullScreenElement && !doc.msFullscreenElement) {
+      if (docElm.requestFullscreen) {
+        docElm.requestFullscreen();
+      } else if (docElm.webkitRequestFullscreen) {
+        docElm.webkitRequestFullscreen();
+      } else if (docElm.mozRequestFullScreen) {
+        docElm.mozRequestFullScreen();
+      } else if (docElm.msRequestFullscreen) {
+        docElm.msRequestFullscreen();
+      }
+    } else {
+      if (doc.exitFullscreen) {
+        doc.exitFullscreen();
+      } else if (doc.webkitExitFullscreen) {
+        doc.webkitExitFullscreen();
+      } else if (doc.mozCancelFullScreen) {
+        doc.mozCancelFullScreen();
+      } else if (doc.msExitFullscreen) {
+        doc.msExitFullscreen();
+      }
+    }
+  };
 
   const handleSaveClick = () => {
     const isChanging = customUrl.trim() !== settings.customPlaylistUrl;
@@ -93,9 +146,12 @@ export function SettingsView({ isOpen, onClose }: SettingsViewProps) {
     >
       <div 
         className="absolute inset-0 bg-slate-950/50 backdrop-blur-xl"
-        onClick={onClose} 
+        // Backdrop click no longer closes the modal per strict instructions
       />
-      <div className="relative h-full w-full max-w-4xl mx-auto flex flex-col">
+      <div 
+        className="relative h-full w-full max-w-4xl mx-auto flex flex-col"
+        onClick={(e) => e.stopPropagation()} // Prevent bubbles from inside the content area
+      >
         <div className="absolute top-4 right-4 md:top-6 md:right-6 z-10">
           <button onClick={onClose} className="p-2 rounded-md bg-white/10 hover:bg-white/20 text-slate-200 transition-colors">
             <X className="w-6 h-6" />
@@ -157,7 +213,20 @@ export function SettingsView({ isOpen, onClose }: SettingsViewProps) {
                     <CardTitle>Interface</CardTitle>
                     <CardDescription>Adjust the look and feel of the application.</CardDescription>
                   </CardHeader>
-                  <CardContent>
+                  <CardContent className="divide-y divide-border">
+                    <div className="flex items-center justify-between py-6">
+                      <Label htmlFor="full-screen" className="flex flex-col space-y-1 pr-6">
+                        <span className="font-semibold">Full Screen</span>
+                        <span className="font-normal leading-snug text-muted-foreground">
+                          Toggle full-screen mode for the entire application.
+                        </span>
+                      </Label>
+                      <Switch
+                        id="full-screen"
+                        checked={isFullScreen}
+                        onCheckedChange={handleToggleFullScreen}
+                      />
+                    </div>
                     <div className="flex items-center justify-between py-6">
                       <Label htmlFor="default-view" className="flex flex-col space-y-1 pr-6">
                         <span className="font-semibold">Default View on Startup</span>
@@ -167,7 +236,7 @@ export function SettingsView({ isOpen, onClose }: SettingsViewProps) {
                       </Label>
                       <Select
                         value={settings.defaultView}
-                        onValueChange={(value) => updateSettings({ defaultView: value as 'home' | 'player' | 'favorites' })}
+                        onValueChange={(value) => updateSettings({ defaultView: value as 'home' | 'player' | 'favorites' | 'categories' })}
                       >
                         <SelectTrigger className="w-[180px]">
                           <SelectValue placeholder="Select a view" />
@@ -224,9 +293,6 @@ export function SettingsView({ isOpen, onClose }: SettingsViewProps) {
                             </AlertDialogContent>
                         </AlertDialog>
                     </div>
-                     <p className="text-xs text-muted-foreground pt-4">
-                      For advanced playlist management for all users, developers can use the <Link href="/admin" className="underline hover:text-primary">Admin Dashboard</Link>.
-                    </p>
                   </CardContent>
                 </Card>
             </TabsContent>
